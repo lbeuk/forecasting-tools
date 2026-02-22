@@ -11,15 +11,18 @@ from abc import ABC, abstractmethod
 
 class AutoResolver(ABC):
     """
-    Auto resolvers are provided a metaculus question, and aggregate research on
-    - whether they have resolved or not
-    - whether they have resolved conclusively or not
-    - what conclusion they have reaches  
+    Auto resolvers are provided a metaculus question, and return a resolution if it was able to
+    conclusively resolve a question.
+
+    It should be noted that "ambiguous" and "annulled" resolutions
+    ARE conclusive (as they are a final resolution). An inconclusive, or null, resolution, means
+    that the deciding event or deadline has not occured, or there is presently not enough
+    information for the resolver to come to a conclusion.
     """
 
     @abstractmethod
-    def resolve_question(self, question: MetaculusQuestion) -> Optional[ResolutionType]:
-        pass
+    async def resolve_question(self, question: MetaculusQuestion) -> Optional[ResolutionType]:
+        raise NotImplementedError()
         
 class CommunityForecastResolver(AutoResolver):
     """
@@ -37,13 +40,13 @@ class CommunityForecastResolver(AutoResolver):
        self.mc_threshold = mc_threshold
 
     @abstractmethod
-    def resolve_question(self, question: MetaculusQuestion) -> Optional[ResolutionType]:
+    async def resolve_question(self, question: MetaculusQuestion) -> Optional[ResolutionType]:
         # Update the question
         question = MetaculusClient.get_question_by_post_id(question.id_of_post)
         if isinstance(question, BinaryQuestion):
             return self._resolve_binary_question(question)
         else:
-            return None
+            return NotImplemented
       
 
     def _resolve_binary_question(self, question: BinaryQuestion) -> Optional[BinaryResolution]:
@@ -55,4 +58,3 @@ class CommunityForecastResolver(AutoResolver):
             return False
         else:
             return None
-    

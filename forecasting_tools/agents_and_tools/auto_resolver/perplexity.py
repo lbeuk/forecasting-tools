@@ -1,4 +1,5 @@
-"""Multi-agent question resolver using OpenAI Agents SDK.
+"""
+Multi-agent question resolver using OpenAI Agents SDK and perplexity.
 
 This module implements a multi-agent architecture for resolving Metaculus
 forecasting questions. It uses a pluggable researcher pattern with a default
@@ -104,6 +105,7 @@ class OpenAIResolver(AutoResolver):
             timeout=timeout,
         )
         self.timeout = timeout
+        self._last_resolution_metadata = None
         logger.info(
             f"Initialized OpenAIResolver with model={model}, timeout={timeout}s"
         )
@@ -144,6 +146,7 @@ class OpenAIResolver(AutoResolver):
         2. Run orchestrator (which coordinates handoffs)
         3. Parse final output with structured output
         4. Convert to typed resolution
+        5. Store metadata (key_evidence) for later retrieval
 
         Args:
             question: Binary question to resolve
@@ -190,11 +193,25 @@ class OpenAIResolver(AutoResolver):
                 raw_output=result.final_output, original_error=e
             ) from e
 
+        # Store metadata for later retrieval
+        self._last_resolution_metadata = {
+            "reasoning": resolution_result.reasoning,
+            "key_evidence": resolution_result.key_evidence,
+        }
+
         # Convert to typed resolution
         typed_resolution = self._convert_to_binary_resolution(resolution_result)
         logger.info(f"Final resolution: {typed_resolution}")
 
         return typed_resolution
+
+    def get_last_resolution_metadata(self) -> dict | None:
+        """Returns metadata from the last resolution attempt.
+
+        Returns:
+            dict with 'reasoning' and 'key_evidence' keys, or None if no resolution has been attempted
+        """
+        return self._last_resolution_metadata
 
     def _create_default_researcher(self, question: BinaryQuestion) -> AiAgent:
         """Create default Perplexity-based researcher agent.
@@ -312,6 +329,7 @@ class OpenAIResolver(AutoResolver):
             3. **Timeline Check**: Consider the scheduled resolution date and current date
             4. **Verification**: Cross-check information from multiple sources
             5. **Edge Cases**: Look for any ambiguities, disputes, or complications
+            6. **Validity Check**: Investigate whether the question's subject is valid/possible (for potential annulment)
 
             # Search Strategy Guidelines
 
@@ -322,12 +340,40 @@ class OpenAIResolver(AutoResolver):
             - Note any contradictions or uncertainties you find
             - Pay special attention to dates and timelines
 
+            # Decomposition Strategy for Multi-Entity Questions
+
+            If a question involves multiple entities (companies, people, organizations, etc.):
+
+            1. **First attempt**: Search for comprehensive data about all entities
+            2. **If comprehensive search fails**: Decompose the question and search each entity individually
+            3. **Example**: For "Did all Magnificent Seven stocks decline 50%?", search:
+               - "Microsoft MSFT all-time high 2025"
+               - "Nvidia NVDA 2025 stock performance"
+               - "Apple AAPL 2025 pricing"
+               - And so on for each company
+            4. **Then aggregate**: Combine individual findings to answer the comprehensive question
+
+            # Detecting Annulled/Invalid Questions
+
+            Some questions may be fundamentally invalid (annulled). Look for:
+
+            - Studies/experiments that were never conducted, cancelled, or abandoned
+            - Questions about entities that never existed or were fundamentally misconceived
+            - Research projects that lost funding, had impossible criteria, or were invalid from the start
+            - Any indication that the question's subject is impossible or doesn't exist
+
+            **When you cannot find evidence of an event occurring:**
+            - Search specifically for: "[subject] cancelled", "[subject] abandoned", "[subject] never conducted"
+            - Search for: "[subject] funding withdrawn", "[subject] fundamental problems", "[subject] invalid"
+            - If you find evidence the subject was never valid/possible, note this for potential ANNULLED resolution
+
             # Example Search Sequence
 
             1. Broad search: "Current status of [topic] as of [current date]"
             2. Specific search: "Has [specific criterion] occurred?"
             3. Verification: "Latest news about [topic]"
             4. (Optional) Follow-up based on findings
+            5. (If no results found) Validity check: "[topic] cancelled", "[topic] validity", "[topic] problems"
 
             # Important Reminders
 
@@ -335,6 +381,8 @@ class OpenAIResolver(AutoResolver):
             - Document your findings clearly
             - Note the sources and dates of information
             - If you find conflicting information, document both sides
+            - Decompose multi-entity questions when comprehensive searches fail
+            - Actively search for evidence of annulment/invalidity when no results are found
             - When ready, hand off your research to the resolver
 
             # Handoff
@@ -529,6 +577,14 @@ async def main():
     print("=" * 60)
     print(report)
     print("=" * 60)
+
+    # Save detailed report to reports directory
+    try:
+        report_path = report.write_to_file(directory="reports")
+        print(f"\nDetailed report saved to: {report_path}")
+    except Exception as e:
+        logger.error(f"Failed to save report to reports directory: {e}", exc_info=True)
+        print(f"\nWarning: Could not save report to reports directory: {e}")
 
     logger.info("Assessment complete")
 

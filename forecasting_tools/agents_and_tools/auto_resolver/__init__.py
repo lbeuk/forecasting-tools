@@ -23,6 +23,18 @@ class AutoResolver(ABC):
     @abstractmethod
     async def resolve_question(self, question: MetaculusQuestion) -> Optional[ResolutionType]:
         raise NotImplementedError()
+
+    def get_last_resolution_metadata(self) -> dict | None:
+        """
+        Returns metadata from the last resolution attempt, such as chain of thought or key evidence.
+        
+        Subclasses should override this to provide additional context about how the resolution
+        was determined.
+
+        Returns:
+            dict with metadata fields (e.g., 'key_evidence', 'reasoning', etc.) or None
+        """
+        return None
         
 class CommunityForecastResolver(AutoResolver):
     """

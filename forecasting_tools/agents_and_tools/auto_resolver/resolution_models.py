@@ -3,9 +3,10 @@
 This module defines the data models used to parse the output from the resolver
 agent into typed resolution decisions.
 """
+from forecasting_tools.data_models.questions import BinaryResolution, CanceledResolution
 
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Optional
 
 
 class BinaryResolutionResult(BaseModel):
@@ -34,3 +35,34 @@ class BinaryResolutionResult(BaseModel):
         min_length=3,
         max_length=5,
     )
+
+
+    def convert_to_binary_resolution(self) -> Optional[BinaryResolution]:
+        """Convert structured result to typed binary resolution.
+
+        Args:
+            result: Parsed resolution result
+
+        Returns:
+            Typed BinaryResolution or None
+
+        Raises:
+            ValueError: If resolution status is unexpected
+        """
+     
+        match self.resolution_status:
+            case "TRUE":
+                return True
+            case "FALSE":
+                return False
+            case "AMBIGUOUS":
+                return CanceledResolution.AMBIGUOUS
+            case "ANNULLED":
+                return CanceledResolution.ANNULLED
+            case "NOT_YET_RESOLVABLE":
+                return None
+            case _:
+                raise ValueError(
+                    f"Unexpected resolution status: {result.resolution_status}"
+                )
+    

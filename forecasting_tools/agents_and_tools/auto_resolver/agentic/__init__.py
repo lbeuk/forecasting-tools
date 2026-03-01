@@ -1,0 +1,224 @@
+"""
+Agentic question resolver using OpenAI Agents.
+
+This module implements a multi-agent architecture for resolving Metaculus
+forecasting questions. It uses a pluggable researcher pattern with a default
+Perplexity-based implementation.
+
+Architecture:
+    0. Question rephraser (standalone LLM call) converts past-deadline
+       questions from future tense to past tense for better research
+    1. Orchestrator (minimal) coordinates handoffs between agents
+    2. Researcher agent performs multiple strategic searches
+    3. Resolver agent analyzes research and determines resolution
+    4. Structured output parsing converts to typed resolution
+"""
+
+import logging
+from typing import Optional, Callable
+
+from forecasting_tools.data_models.questions import (
+    ResolutionType,
+    CanceledResolution,
+    BinaryResolution,
+)
+from forecasting_tools import MetaculusQuestion, BinaryQuestion
+from forecasting_tools.agents_and_tools.auto_resolver.agentic.instructions import *
+from forecasting_tools.agents_and_tools.auto_resolver.resolution_models import BinaryResolutionResult
+from forecasting_tools.agents_and_tools.auto_resolver import AutoResolver
+from forecasting_tools.agents_and_tools.minor_tools import (
+    perplexity_reasoning_pro_search,
+)
+from forecasting_tools.ai_models.agent_wrappers import (
+    AgentRunner,
+    AgentSdkLlm,
+    AiAgent,
+)
+from forecasting_tools.ai_models.general_llm import GeneralLlm
+from forecasting_tools.helpers.structure_output import structure_output
+from forecasting_tools.util.misc import clean_indents
+
+logger = logging.getLogger(__name__)
+
+
+
+
+class StructuredOutputParsingError(Exception):
+    """Raised when structured output parsing fails.
+
+    This exception preserves the raw unparsed output for debugging purposes.
+
+    Attributes:
+        raw_output: The unparsed output that failed parsing
+        original_error: The original exception that caused the failure
+    """
+
+    def __init__(self, raw_output: str, original_error: Exception):
+        self.raw_output = raw_output
+        self.original_error = original_error
+        super().__init__(
+            f"Failed to parse structured output: {original_error}\n"
+            f"Raw output available in exception.raw_output"
+        )
+
+
+class AgenticResolver(AutoResolver):
+    """
+    Agentic resolver using agents SDK.
+    """
+
+    def __init__(self,
+        model_for_supervisor: str = "openrouter/anthropic/claude-sonnet-4.6",
+        model_for_resolver: str = "openrouter/anthropic/claude-sonnet-4.6",
+        model_for_output_structure: str = "openrouter/anthropic/claude-sonnet-4.6",
+        model_for_researcher: str = "openrouter/anthropic/claude-sonnet-4.6",
+        model_for_rephraser: str = "openrouter/anthropic/claude-sonnet-4.6",
+        timeout: int = 480
+    ):
+       self.model_for_supervisor = model_for_supervisor
+       self.model_for_resolver = model_for_resolver
+       self.model_for_output_structure = model_for_output_structure
+       self.model_for_researcher = model_for_researcher
+       self.model_for_rephraser = model_for_rephraser
+       self.timeout = timeout
+       
+           
+    async def resolve_question(
+        self, question: MetaculusQuestion
+    ) -> Optional[ResolutionType]:
+        if isinstance(question, BinaryQuestion):
+            return await self._resolve_binary(question)
+        else:
+            return NotImplemented
+
+    async def _resolve_binary(
+        self, question: BinaryQuestion
+    ) -> Optional[BinaryResolution]:
+
+        # Rephrase question if its time context has passed
+        question = await self._rephrase_question_if_needed(question)
+
+        # Create agents
+        researcher = self._create_researcher(question)
+        resolver = self._create_resolver_agent(question)
+        orchestrator = self._create_orchestrator_agent(researcher, resolver)
+
+        # Run the workflow (non-streaming)
+        result = await AgentRunner.run(
+            orchestrator, "Please begin the resolution process.", max_turns=10
+        )
+
+        # Parse structured output with error handling
+        try:
+            resolution_result = await structure_output(
+                result.final_output,
+                BinaryResolutionResult,
+                model=self.model_for_output_structure,
+            )
+            logger.info(
+                f"Successfully parsed resolution: {resolution_result.resolution_status}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to parse structured output: {e}", exc_info=True)
+            raise StructuredOutputParsingError(
+                raw_output=result.final_output, original_error=e
+            ) from e
+
+        # Store metadata for later retrieval
+        self._last_resolution_metadata = {
+            "reasoning": resolution_result.reasoning,
+            "key_evidence": resolution_result.key_evidence,
+        }
+
+        # Convert to typed resolution
+        typed_resolution = resolution_result.convert_to_binary_resolution()
+        logger.info(f"Final resolution: {typed_resolution}")
+
+        return typed_resolution
+
+    async def _rephrase_question_if_needed(
+        self, question: BinaryQuestion
+    ) -> BinaryQuestion:
+        """Rephrase the question into past tense if its time context has passed.
+
+        Uses a lightweight LLM call to determine whether the question's deadline
+        has already passed and, if so, rephrases it from future tense to past
+        tense. This makes downstream research searches more effective.
+
+        Args:
+            question: The original question to potentially rephrase.
+
+        Returns:
+            A copy of the question with question_text updated if rephrasing
+            was needed, or the original question unchanged.
+        """
+        prompt = question_rephraser_instructions(question)
+        llm = GeneralLlm(model=self.model_for_rephraser, temperature=0.0)
+
+        try:
+            rephrased_text = await llm.invoke(prompt)
+            rephrased_text = rephrased_text.strip().strip('"').strip("'")
+
+            if rephrased_text and rephrased_text != question.question_text:
+                logger.info(
+                    f"Question rephrased:\n"
+                    f"  Original:  {question.question_text}\n"
+                    f"  Rephrased: {rephrased_text}"
+                )
+                question = question.model_copy(deep=True)
+                question.question_text = rephrased_text
+            else:
+                logger.info("Question rephraser: no rephrasing needed")
+        except Exception as e:
+            logger.warning(
+                f"Question rephrasing failed, proceeding with original: {e}",
+                exc_info=True,
+            )
+
+        return question
+
+    def _create_researcher(self, question: BinaryQuestion) -> AiAgent:
+        instructions = researcher_instructions(question)
+        return AiAgent(
+            name="Resolution Researcher",
+            instructions=instructions,
+            model=AgentSdkLlm(model=self.model_for_researcher),
+            tools=[perplexity_reasoning_pro_search],
+            handoffs=[],
+        )
+
+    def _create_resolver_agent(self, question: BinaryQuestion) -> AiAgent:
+        instructions = binary_resolver_instructions(question)
+        return AiAgent(
+            name="resolver",
+            instructions=instructions,
+            model=AgentSdkLlm(model=self.model_for_resolver),
+            tools=[],  # No tools - only analyzes research
+            handoffs=[],  # Terminal agent
+        )
+
+    def _create_orchestrator_agent(
+        self, researcher: AiAgent, resolver: AiAgent
+    ) -> AiAgent:
+        logger.debug("Creating minimal orchestrator agent")
+
+        instructions = clean_indents(
+            """
+            You are coordinating a question resolution process.
+
+            Your task is simple:
+            1. Hand off to the Resolution Researcher to gather information
+            2. The researcher will hand off to the resolver when ready
+            3. The resolver will provide the final resolution
+
+            Begin by handing off to the researcher.
+            """
+        )
+
+        return AiAgent(
+            name="Resolution Orchestrator",
+            instructions=instructions,
+            model=AgentSdkLlm(model=self.model_for_output_structure),
+            tools=[],
+            handoffs=[researcher, resolver],
+        )

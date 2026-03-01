@@ -27,109 +27,128 @@ class QuestionAssessmentResult:
 @dataclass
 class ResolutionAssessmentReport:
     """
-    Table for binary assessment (y-axis is true value, x-axis is predicted value):
-
-          | True | False | Unresolvable | Cancelled | Unmatched
-    ------|------|-------|--------------|-----------|------------
-    True  | n_tp | n_fn  | n_mp         | n_ct      | n_um_true
-    False | n_fp | n_tn  | n_mn         | n_cf      | n_um_false
-    Cancelled | n_tc | n_fc | n_mc     | n_cc      | n_um_ca
+    Contained variables are arrays, named according to the convention: "{predicted}{true}".
+    Values for predicted/true are as follows:
+    - p: positive
+    - n: negative
+    - c: cancelled
+    - x: not answered  
     """
 
-    tp: list[int] = field(default_factory=list)
-    fp: list[int] = field(default_factory=list)
-    fn: list[int] = field(default_factory=list)
-    tn: list[int] = field(default_factory=list)
-    mp: list[int] = field(default_factory=list)
-    mn: list[int] = field(default_factory=list)
-    ct: list[int] = field(default_factory=list)  # True actual, Cancelled predicted
-    cf: list[int] = field(default_factory=list)  # False actual, Cancelled predicted
-    tc: list[int] = field(default_factory=list)  # Cancelled actual, True predicted
-    fc: list[int] = field(default_factory=list)  # Cancelled actual, False predicted
-    mc: list[int] = field(default_factory=list)  # Cancelled actual, Unresolvable predicted
-    cc: list[int] = field(default_factory=list)  # Cancelled actual, Cancelled predicted
-    um_true: list[int] = field(default_factory=list)  # True actual, unmatched predicted (error/edge case)
-    um_false: list[int] = field(default_factory=list)  # False actual, unmatched predicted (error/edge case)
-    um_ca: list[int] = field(default_factory=list)  # Cancelled actual, unmatched predicted (error/edge case)
+    pp: list[int] = field(default_factory=list)
+    pn: list[int] = field(default_factory=list)
+    pc: list[int] = field(default_factory=list)
+    
+    np: list[int] = field(default_factory=list)
+    nn: list[int] = field(default_factory=list)
+    nc: list[int] = field(default_factory=list)
+
+    cp: list[int] = field(default_factory=list)  
+    cn: list[int] = field(default_factory=list)  
+    cc: list[int] = field(default_factory=list)  
+
+    xp: list[int] = field(default_factory=list)  
+    xn: list[int] = field(default_factory=list)  
+    xc: list[int] = field(default_factory=list)
+    
     question_results: dict[int, QuestionAssessmentResult] = field(default_factory=dict)
 
     @property
-    def n_tp(self) -> int:
-        return len(self.tp)
+    def n_pp(self) -> int:
+        return len(self.pp)
 
     @property
-    def n_fp(self) -> int:
-        return len(self.fp)
+    def n_pn(self) -> int:
+        return len(self.pn)
 
     @property
-    def n_fn(self) -> int:
-        return len(self.fn)
+    def n_pc(self) -> int:
+        return len(self.pc)
 
     @property
-    def n_tn(self) -> int:
-        return len(self.tn)
+    def n_np(self) -> int:
+        return len(self.np)
 
     @property
-    def n_mp(self) -> int:
-        return len(self.mp)
+    def n_nn(self) -> int:
+        return len(self.nn)
 
     @property
-    def n_mn(self) -> int:
-        return len(self.mn)
-    
+    def n_nc(self) -> int:
+        return len(self.nc)
+
     @property
-    def n_ct(self) -> int:
-        return len(self.ct)
-    
+    def n_cp(self) -> int:
+        return len(self.cp)
+
     @property
-    def n_cf(self) -> int:
-        return len(self.cf)
-    
-    @property
-    def n_tc(self) -> int:
-        return len(self.tc)
-    
-    @property
-    def n_fc(self) -> int:
-        return len(self.fc)
-    
-    @property
-    def n_mc(self) -> int:
-        return len(self.mc)
-    
+    def n_cn(self) -> int:
+        return len(self.cn)
+
     @property
     def n_cc(self) -> int:
         return len(self.cc)
-    
+
     @property
-    def n_um_true(self) -> int:
-        return len(self.um_true)
-    
+    def n_xp(self) -> int:
+        return len(self.xp)
+
     @property
-    def n_um_false(self) -> int:
-        return len(self.um_false)
-    
+    def n_xn(self) -> int:
+        return len(self.xn)
+
     @property
-    def n_um_ca(self) -> int:
-        return len(self.um_ca)
+    def n_xc(self) -> int:
+        return len(self.xc)
     
     def binary_results_table(self) -> str:
         """
         Returns a markdown table representation of the binary assessment report.
 
-        The "Unmatched" column contains cases where the resolver returned an unexpected
-        value (e.g., NotImplemented for unsupported question types, or other edge cases).
-        These are logged as warnings for debugging.
+        Columns represent predicted resolutions, rows represent actual resolutions.
+        The "Not Answered" column contains cases where the resolver returned None
+        or an unexpected value (logged as warnings for debugging).
 
         Returns:
             str: A markdown formatted confusion matrix table
         """
-        return f"""\
-| Actual \\ Predicted | True | False | Unresolvable | Cancelled | Unmatched |
-|--------------------|------|-------|--------------|-----------|-----------|
-| True               |  {str(self.n_tp).rjust(3)} |   {str(self.n_fn).rjust(3)} |          {str(self.n_mp).rjust(3)} |       {str(self.n_ct).rjust(3)} |   {str(self.n_um_true).rjust(3)} |
-| False              |  {str(self.n_fp).rjust(3)} |   {str(self.n_tn).rjust(3)} |          {str(self.n_mn).rjust(3)} |       {str(self.n_cf).rjust(3)} |   {str(self.n_um_false).rjust(3)} |
-| Cancelled          |  {str(self.n_tc).rjust(3)} |   {str(self.n_fc).rjust(3)} |          {str(self.n_mc).rjust(3)} |       {str(self.n_cc).rjust(3)} |   {str(self.n_um_ca).rjust(3)} |"""
+        corner_label = "Actual \\ Predicted"
+        col_headers = ["Positive", "Negative", "Cancelled", "Not Answered"]
+        row_labels = ["Positive", "Negative", "Cancelled"]
+        # Rows ordered: actual Positive, actual Negative, actual Cancelled
+        # Columns ordered: predicted Positive, predicted Negative, predicted Cancelled, predicted Not Answered
+        data = [
+            [str(self.n_pp), str(self.n_np), str(self.n_cp), str(self.n_xp)],
+            [str(self.n_pn), str(self.n_nn), str(self.n_cn), str(self.n_xn)],
+            [str(self.n_pc), str(self.n_nc), str(self.n_cc), str(self.n_xc)],
+        ]
+
+        # Compute column widths dynamically
+        col_widths = [len(corner_label)]
+        for i, header in enumerate(col_headers):
+            max_data_width = max(len(data[row][i]) for row in range(len(row_labels)))
+            col_widths.append(max(len(header), max_data_width))
+
+        # Update corner label width to account for row labels
+        col_widths[0] = max(col_widths[0], max(len(label) for label in row_labels))
+
+        def fmt_row(cells: list[str]) -> str:
+            parts = []
+            for i, cell in enumerate(cells):
+                parts.append(f" {cell.ljust(col_widths[i])} ")
+            return "|" + "|".join(parts) + "|"
+
+        def fmt_separator() -> str:
+            return "|" + "|".join("-" * (w + 2) for w in col_widths) + "|"
+
+        header_row = fmt_row([corner_label] + col_headers)
+        separator = fmt_separator()
+        body_rows = [
+            fmt_row([row_labels[r]] + data[r])
+            for r in range(len(row_labels))
+        ]
+
+        return "\n".join([header_row, separator] + body_rows)
 
     def detailed_report(self) -> str:
         """
@@ -148,10 +167,11 @@ class ResolutionAssessmentReport:
         lines.append("")
 
         # Results calculation
-        total = self.n_tp + self.n_fp + self.n_fn + self.n_tn + self.n_mp + self.n_mn + \
-                self.n_ct + self.n_cf + self.n_tc + self.n_fc + self.n_mc + self.n_cc + \
-                self.n_um_true + self.n_um_false + self.n_um_ca
-        correct = self.n_tp + self.n_tn + self.n_cc
+        total = self.n_pp + self.n_pn + self.n_pc + \
+                self.n_np + self.n_nn + self.n_nc + \
+                self.n_cp + self.n_cn + self.n_cc + \
+                self.n_xp + self.n_xn + self.n_xc
+        correct = self.n_pp + self.n_nn + self.n_cc
         accuracy = (correct / total * 100) if total > 0 else 0
 
         lines.append(f"**Total Questions:** {total}")
@@ -369,46 +389,45 @@ class ResolutionAssesser:
                 outcome_category = None
 
                 match true_resolution, test_resolution:
-                    # True actual resolution cases
+                    # Positive actual resolution cases
                     case True, True:
-                        report.tp.append(question_id)
+                        report.pp.append(question_id)
                         outcome_category = "True Positive"
                     case True, False:
-                        report.fn.append(question_id)
+                        report.np.append(question_id)
                         outcome_category = "False Negative"
                     case True, None:
-                        report.mp.append(question_id)
+                        report.xp.append(question_id)
                         outcome_category = "Missed Positive"
-                    # False actual resolution cases
+                    case True, CanceledResolution():
+                        report.cp.append(question_id)
+                        outcome_category = "Positive Incorrectly Predicted as Cancelled"
+                    # Negative actual resolution cases
                     case False, True:
-                        report.fp.append(question_id)
+                        report.pn.append(question_id)
                         outcome_category = "False Positive"
                     case False, False:
-                        report.tn.append(question_id)
+                        report.nn.append(question_id)
                         outcome_category = "True Negative"
                     case False, None:
-                        report.mn.append(question_id)
+                        report.xn.append(question_id)
                         outcome_category = "Missed Negative"
+                    case False, CanceledResolution():
+                        report.cn.append(question_id)
+                        outcome_category = "Negative Incorrectly Predicted as Cancelled"
                     # Cancelled actual resolution cases
                     case CanceledResolution(), True:
-                        report.tc.append(question_id)
-                        outcome_category = "True Incorrectly Predicted as True"
+                        report.pc.append(question_id)
+                        outcome_category = "Cancelled Incorrectly Predicted as Positive"
                     case CanceledResolution(), False:
-                        report.fc.append(question_id)
-                        outcome_category = "Cancelled Incorrectly Predicted as False"
+                        report.nc.append(question_id)
+                        outcome_category = "Cancelled Incorrectly Predicted as Negative"
                     case CanceledResolution(), None:
-                        report.mc.append(question_id)
-                        outcome_category = "Cancelled Predicted as Unresolvable"
+                        report.xc.append(question_id)
+                        outcome_category = "Cancelled Not Answered"
                     case CanceledResolution(), CanceledResolution():
                         report.cc.append(question_id)
                         outcome_category = "Correct Cancel"
-                    # True/False actual with Cancelled predicted
-                    case True, CanceledResolution():
-                        report.ct.append(question_id)
-                        outcome_category = "True Incorrectly Predicted as Cancelled"
-                    case False, CanceledResolution():
-                        report.cf.append(question_id)
-                        outcome_category = "False Incorrectly Predicted as Cancelled"
                     # Catch-all for unmatched cases (edge cases, errors, NotImplemented, etc.)
                     case _:
                         logging.warning(
@@ -416,13 +435,13 @@ class ResolutionAssesser:
                             f"true_resolution={true_resolution}, test_resolution={test_resolution}"
                         )
                         if true_resolution == True:
-                            report.um_true.append(question_id)
-                            outcome_category = "Unmatched - True"
+                            report.xp.append(question_id)
+                            outcome_category = "Unmatched - Positive"
                         elif true_resolution == False:
-                            report.um_false.append(question_id)
-                            outcome_category = "Unmatched - False"
+                            report.xn.append(question_id)
+                            outcome_category = "Unmatched - Negative"
                         elif isinstance(true_resolution, CanceledResolution):
-                            report.um_ca.append(question_id)
+                            report.xc.append(question_id)
                             outcome_category = "Unmatched - Cancelled"
                         else:
                             continue

@@ -15,7 +15,9 @@ Architecture:
 """
 
 import logging
-from typing import Optional, Callable
+from typing import AsyncGenerator, Optional, Callable
+
+from openai.types.responses import ResponseTextDeltaEvent
 
 from forecasting_tools.data_models.questions import (
     ResolutionType,
@@ -33,6 +35,7 @@ from forecasting_tools.ai_models.agent_wrappers import (
     AgentRunner,
     AgentSdkLlm,
     AiAgent,
+    event_to_tool_message,
 )
 from forecasting_tools.ai_models.general_llm import GeneralLlm
 from forecasting_tools.helpers.structure_output import structure_output
@@ -221,4 +224,101 @@ class AgenticResolver(AutoResolver):
             model=AgentSdkLlm(model=self.model_for_output_structure),
             tools=[],
             handoffs=[researcher, resolver],
+        )
+
+    async def resolve_question_streamed(
+        self, question: MetaculusQuestion
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """Resolve a question with streaming, yielding (event_type, message) tuples.
+
+        This is the streaming counterpart to resolve_question(). It yields
+        intermediate events as they occur during the agent resolution process,
+        allowing a TUI or other consumer to display live progress.
+
+        Event types:
+            "status"  -- lifecycle status updates (rephrasing, agent creation, etc.)
+            "text"    -- streamed text delta from the agent's response
+            "tool"    -- tool call / handoff / reasoning events
+            "result"  -- final resolution result (yielded once at the end)
+            "error"   -- an error occurred during resolution
+
+        After all events are yielded, the resolver's internal metadata is updated
+        (same as resolve_question), so get_last_resolution_metadata() will work.
+
+        Args:
+            question: The Metaculus question to resolve.
+
+        Yields:
+            Tuples of (event_type, message_text).
+        """
+        if not isinstance(question, BinaryQuestion):
+            yield ("error", f"Unsupported question type: {type(question).__name__}")
+            return
+
+        # Step 1: Rephrase if needed
+        yield ("status", "Checking if question needs rephrasing...")
+        question = await self._rephrase_question_if_needed(question)
+        yield ("status", f"Question text: {question.question_text}")
+
+        # Step 2: Create agents
+        yield ("status", "Creating resolution agents...")
+        researcher = self._create_researcher(question)
+        resolver = self._create_resolver_agent(question)
+        orchestrator = self._create_orchestrator_agent(researcher, resolver)
+
+        # Step 3: Run streamed workflow
+        yield ("status", "Starting resolution process...")
+        streamed_text = ""
+
+        result = AgentRunner.run_streamed(
+            orchestrator, "Please begin the resolution process.", max_turns=10
+        )
+
+        async for event in result.stream_events():
+            # Capture text deltas
+            if event.type == "raw_response_event" and isinstance(
+                event.data, ResponseTextDeltaEvent
+            ):
+                streamed_text += event.data.delta
+                yield ("text", event.data.delta)
+
+            # Capture tool/handoff/reasoning events
+            tool_msg = event_to_tool_message(event)
+            if tool_msg:
+                yield ("tool", tool_msg)
+
+        # Step 4: Parse structured output
+        yield ("status", "Parsing resolution output...")
+        final_output = result.final_output
+
+        try:
+            resolution_result = await structure_output(
+                final_output,
+                BinaryResolutionResult,
+                model=self.model_for_output_structure,
+            )
+            logger.info(
+                f"Successfully parsed resolution: {resolution_result.resolution_status}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to parse structured output: {e}", exc_info=True)
+            yield ("error", f"Failed to parse structured output: {e}")
+            self._last_resolution_metadata = None
+            return
+
+        # Step 5: Store metadata
+        self._last_resolution_metadata = {
+            "reasoning": resolution_result.reasoning,
+            "key_evidence": resolution_result.key_evidence,
+        }
+
+        typed_resolution = resolution_result.convert_to_binary_resolution()
+        logger.info(f"Final resolution: {typed_resolution}")
+
+        yield (
+            "result",
+            f"Resolution: {resolution_result.resolution_status}\n"
+            f"Reasoning: {resolution_result.reasoning}\n"
+            f"Key Evidence:\n"
+            + "\n".join(f"  - {e}" for e in resolution_result.key_evidence),
         )

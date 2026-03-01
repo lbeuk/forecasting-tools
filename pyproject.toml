@@ -49,6 +49,7 @@ unidecode = "^1.4.0"
 hyperbrowser = ">=0.53.0,<0.76.0"
 pendulum = "^3.1.0"
 openai-agents = {extras = ["litellm"], version = ">=0.2.0,<0.7.0"}
+textual = ">=3.0.0,<4.0.0"
 
 [tool.poetry.group.dev.dependencies]
 time-machine = ">=2.19.0,<4.0.0"

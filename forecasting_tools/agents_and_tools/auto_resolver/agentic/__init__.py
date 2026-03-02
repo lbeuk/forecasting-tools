@@ -29,6 +29,7 @@ from forecasting_tools.agents_and_tools.auto_resolver.agentic.instructions impor
 from forecasting_tools.agents_and_tools.auto_resolver.resolution_models import BinaryResolutionResult
 from forecasting_tools.agents_and_tools.auto_resolver import AutoResolver
 from forecasting_tools.agents_and_tools.minor_tools import (
+    create_date_filtered_asknews_tool,
     perplexity_reasoning_pro_search,
 )
 from forecasting_tools.ai_models.agent_wrappers import (
@@ -182,11 +183,12 @@ class AgenticResolver(AutoResolver):
 
     def _create_researcher(self, question: BinaryQuestion) -> AiAgent:
         instructions = researcher_instructions(question)
+        asknews_tool = create_date_filtered_asknews_tool(question.close_time)
         return AiAgent(
             name="Resolution Researcher",
             instructions=instructions,
             model=AgentSdkLlm(model=self.model_for_researcher),
-            tools=[perplexity_reasoning_pro_search],
+            tools=[perplexity_reasoning_pro_search, asknews_tool],
             handoffs=[],
         )
 

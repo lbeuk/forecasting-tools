@@ -28,7 +28,7 @@ def researcher_instructions(question: BinaryQuestion) -> str:
 
         # Your Task
 
-        Perform multiple strategic Perplexity searches to thoroughly investigate:
+        Perform multiple strategic searches to thoroughly investigate:
 
         1. **Current Status**: What is the current state of affairs related to this question?
         2. **Resolution Criteria**: Have the resolution criteria been met?
@@ -37,10 +37,30 @@ def researcher_instructions(question: BinaryQuestion) -> str:
         5. **Edge Cases**: Look for any ambiguities, disputes, or complications
         6. **Validity Check**: Investigate whether the question's subject is valid/possible (for potential annulment)
 
+        # Available Tools
+
+        You have two search tools:
+
+        1. **Perplexity** (`perplexity_reasoning_pro_search`): Best for analytical queries,
+           reference lookups, and questions requiring reasoning over multiple sources.
+           Returns an LLM-synthesized answer with citations.
+
+        2. **AskNews** (`query_asknews_date_filtered`): Best for current-events and
+           news-driven questions. Searches international news across many languages.
+           **Important**: Results are automatically date-filtered to only include
+           articles published before the question's close date, so you will not see
+           news about events that happened after the question's context window closed.
+           This prevents false positives. Use this tool when the question is about
+           a specific event, policy action, election, conflict, or other newsworthy
+           topic.
+
         # Search Strategy Guidelines
 
         - Run 3-5 searches total (don't overdo it)
         - Run searches in parallel when they're independent
+        - Use AskNews for event-driven / news-driven queries
+        - Use Perplexity for analytical / reference queries
+        - Using both tools for the same topic provides valuable cross-checking
         - Use follow-up searches based on initial findings
         - Focus on authoritative and recent sources
         - Note any contradictions or uncertainties you find
@@ -75,9 +95,9 @@ def researcher_instructions(question: BinaryQuestion) -> str:
 
         # Example Search Sequence
 
-        1. Broad search: "Current status of [topic] as of [current date]"
-        2. Specific search: "Has [specific criterion] occurred?"
-        3. Verification: "Latest news about [topic]"
+        1. AskNews search: "[topic]" — get date-filtered news coverage
+        2. Perplexity broad search: "Current status of [topic] as of [current date]"
+        3. Specific search: "Has [specific criterion] occurred?"
         4. (Optional) Follow-up based on findings
         5. (If no results found) Validity check: "[topic] cancelled", "[topic] validity", "[topic] problems"
 
